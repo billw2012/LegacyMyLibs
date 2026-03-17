@@ -1,10 +1,11 @@
 // standard
+#include <deque>
+
 // boost
 #include <boost/variant/multivisitors.hpp>
 #include <boost/range.hpp>
 #include <boost/range/algorithm.hpp>
 #include <boost/filesystem/operations.hpp>
-#include <boost/container_hash/hash.hpp>
 
 // external
 #include "tinyxml.h"
@@ -24,12 +25,12 @@ namespace vice {;
 
 float ComponentInstance::get_width_base() const
 {
-	return get_property_or_default(_template->_properties, "width", 0.0f);
+	return get_property_or_default<float>(_template->_properties, "width");
 }
 
 float ComponentInstance::get_height_base() const
 {
-	return get_property_or_default(_template->_properties, "height", 0.0f);
+	return get_property_or_default<float>(_template->_properties, "height");
 }
 
 size_t ComponentInstance::get_child_count() const
@@ -62,7 +63,7 @@ void ComponentInstance::add_child_python(const Object::ptr::shared_ptr_type& obj
 
 void ComponentInstance::remove_child(const Object::ptr& obj)
 {
-	if(boost::find(_children, obj) != std::end(_children))
+	if(boost::range::find(_children, obj) != std::end(_children))
 		obj->set_owner(nullptr);
 }
 
@@ -91,7 +92,7 @@ const glbase::Texture::ptr& ComponentInstance::get_background() const
 	return _background;
 }
 
-void ComponentInstance::update(const float t)
+void ComponentInstance::update(const double t)
 {
 	/*
 	recursively for each component
@@ -105,15 +106,27 @@ void ComponentInstance::update(const float t)
 	//	obj->clear_animated_properties();
 	//	obj->clear_layout_properties();
 	//});
-	update_animation();
+	update_animation(t);
 	update_layout();
+
+	_lastT = t;
+}
+
+void ComponentInstance::activate_anim(const std::string& anim)
+{
+	_activeAnimations[anim].t = _lastT;
+}
+
+void ComponentInstance::deactivate_all_anims()
+{
+	_activeAnimations.clear();
 }
 
 void ComponentInstance::clear_animated_properties()
 {
 	Object::clear_animated_properties();
 	boost::for_each(_children, [](Object::ptr& obj) {
-		obj->clear_layout_properties();
+		obj->clear_animated_properties();
 	});
 }
 
@@ -125,8 +138,33 @@ void ComponentInstance::clear_layout_properties()
 	});
 }
 
-void ComponentInstance::update_animation()
+void ComponentInstance::update_animation(const double t)
 {
+	for (auto& animTPair : _activeAnimations)
+	{
+#if defined(VICE_DESIGNER)
+		// absolute time in the designer
+		float animT = static_cast<float>(t);
+#else
+		// relative time at runtime
+		float animT = static_cast<float>(t - animTPair.second.t);
+#endif
+		const auto& anim = _template->get_animation(animTPair.first);
+		if (anim)
+		{
+			for (const auto& idPropPair : anim->properties)
+			{
+				const auto& id = idPropPair.first;
+				const auto& animatedProp = idPropPair.second;
+				if (!animatedProp.keys.empty())
+				{
+					auto obj = get_child_by_name(id.obj);
+					auto val = animatedProp.get(animT);
+					obj->set_animated_property(id.prop, val);
+				}
+			}
+		}
+	}
 }
 
 float layout_dim(float dim, float parentBaseDim, float parentLayoutDim, Object::PinType::type pin)
@@ -194,7 +232,7 @@ void ComponentInstance::update_layout()
 	assert(_texture);
 
 	_objectLayoutMap.clear();
-	_layoutRoot = LayoutNode(this);
+	_layoutRoot = LayoutNode(this, nullptr);
 	_objectLayoutMap[this] = &_layoutRoot;
 	build_layout_heirarchy(this, _layoutRoot, _objectLayoutMap);
 	this->componentTransform = math::Matrix4f{};
@@ -218,9 +256,9 @@ void ComponentInstance::update_layout()
 	//}
 }
 
-void ComponentInstance::build_layout_heirarchy(const ComponentInstance* comp, LayoutNode& compNode, std::unordered_map<const Object*, LayoutNode*>& objLayoutMap)
+void ComponentInstance::build_layout_heirarchy(const ComponentInstance* comp, LayoutNode& compNode, std::unordered_map<Object*, LayoutNode*>& objLayoutMap)
 {
-	std::unordered_map<const Object*, LayoutNode::ptr> nodeMap;
+	std::unordered_map<Object*, LayoutNode::ptr> nodeMap;
 
 
 	for (auto itr = comp->_children.begin(); itr != comp->_children.end(); ++itr)
@@ -244,7 +282,10 @@ void ComponentInstance::build_layout_heirarchy(const ComponentInstance* comp, La
 		{
 			auto parentObj = comp->get_child_by_name(parent);
 			if (parentObj)
+			{
 				nodeMap[parentObj.get()]->children.insert(itr->second);
+				itr->second->parent = parentObj.get();
+			}
 		}
 	}
 }
@@ -310,7 +351,7 @@ void ComponentInstance::save(const boost::filesystem::path& file /*= boost::file
 	
 	save_properties(_template->_properties, root);
 
-	for (auto elem : _template->_elements)
+	for (const auto& elem : _template->_elements)
 	{
 		TiXmlElement* elemNode = new TiXmlElement("element");
 		elemNode->SetAttribute("name", elem.first.c_str());
@@ -318,7 +359,7 @@ void ComponentInstance::save(const boost::filesystem::path& file /*= boost::file
 		root->LinkEndChild(elemNode);
 	}
 
-	for (auto comp : _template->_components)
+	for (const auto& comp : _template->_components)
 	{
 		TiXmlElement* compNode = new TiXmlElement("component");
 		compNode->SetAttribute("name", comp.first.c_str());
@@ -327,7 +368,37 @@ void ComponentInstance::save(const boost::filesystem::path& file /*= boost::file
 		root->LinkEndChild(compNode);
 	}
 
-	for (auto script : _template->_scripts)
+	for (const auto& nameAnimPair : _template->_animations)
+	{
+		TiXmlElement* animNode = new TiXmlElement("animation");
+		animNode->SetAttribute("name", nameAnimPair.first.c_str());
+		const auto& anim = nameAnimPair.second;
+		for(const auto& idPropPair : anim->properties)
+		{
+			TiXmlElement* propertyNode = new TiXmlElement("property");
+			const auto& id = idPropPair.first;
+			propertyNode->SetAttribute("object", id.obj.c_str());
+			propertyNode->SetAttribute("property", id.prop.c_str());
+			const auto& keys = idPropPair.second.keys;
+			if (!keys.empty())
+			{
+				auto typePropStr = property_to_string(keys.front().val);
+				propertyNode->SetAttribute("type", Object::PropType::to_string(typePropStr.type).c_str());
+				for (const auto& key : keys)
+				{
+					TiXmlElement* keyNode = new TiXmlElement("key");
+					auto propStr = property_to_string(key.val);
+					keyNode->SetAttribute("t", boost::lexical_cast<std::string>(key.t).c_str());
+					keyNode->SetAttribute("value", propStr.val.c_str());
+					propertyNode->LinkEndChild(keyNode);
+				}
+			}
+			animNode->LinkEndChild(propertyNode);
+		}
+		root->LinkEndChild(animNode);
+	}
+
+	for (const auto& script : _template->_scripts)
 	{
 		TiXmlElement* node = new TiXmlElement("script");
 		node->SetAttribute("path", script.string().c_str());
@@ -353,8 +424,8 @@ std::string ComponentInstance::get_unique_name(const std::string& baseName) cons
 	std::stringstream ss;
 	ss << baseName << idx;
 	while (boost::range::find_if(_children, [&](const Object::ptr& obj)->bool {
-		return obj->get_name() != ss.str();
-	}) == _children.end())
+		return obj->get_name() == ss.str();
+	}) != _children.end())
 	{
 		++idx;
 		ss = std::stringstream();
@@ -399,6 +470,30 @@ Object::ptr ComponentInstance::get_child_by_ptr(const Object* obj) const
 	return Object::ptr();
 }
 
+std::vector<Object*> ComponentInstance::get_children_recusive(const Object* object) const
+{
+	const auto& layoutNode = get_layout_node(object);
+
+	std::vector<Object*> children;
+
+	std::deque<std::remove_reference<decltype(layoutNode)>::type> nodes;
+	nodes.push_back(layoutNode);
+
+	while (!nodes.empty())
+	{
+		auto node = nodes.front();
+		nodes.pop_front();
+
+		if(node->object != object)
+			children.push_back(node->object);
+
+		for(auto childNode : node->children)
+			nodes.push_back(childNode.get());
+	}
+
+	return children;
+}
+
 #endif
 
 math::Matrix4f ComponentInstance::get_camera() const
@@ -410,12 +505,44 @@ math::Matrix4f ComponentInstance::get_camera() const
 #endif		
 }
 
-const ComponentInstance::LayoutNode* ComponentInstance::get_layout_node(const Object* obj) const
+const ComponentInstance::LayoutNode* ComponentInstance::get_layout_node(Object* obj) const
 {
 	auto fItr = _objectLayoutMap.find(obj);
 	if (fItr == _objectLayoutMap.end())
 		return nullptr;
 	return fItr->second;
+}
+
+Object* ComponentInstance::get_object_parent(Object* object)
+{
+	auto layoutNode = get_layout_node(object);
+	return nullptr;
+}
+
+const Object* ComponentInstance::get_object_parent(Object* object) const
+{
+	auto layoutNode = get_layout_node(object);
+	return nullptr;
+}
+
+void ComponentInstance::size_changing(Object* object)
+{
+	auto layoutNode = get_layout_node(object);
+	
+	for (auto& child : layoutNode->children)
+	{
+		child->object->parent_size_changing(object);
+	}
+}
+
+void ComponentInstance::size_changed(Object* object)
+{
+	auto layoutNode = get_layout_node(object);
+
+	for (auto& child : layoutNode->children)
+	{
+		child->object->parent_size_changed(object);
+	}
 }
 
 Object* ComponentInstance::recurse_hit(float x, float y, LayoutNode& node, bool root, const std::function<bool(const Object*)>& ignoreFn)
@@ -524,11 +651,20 @@ void ComponentInstance::register_type()
 	//implicitly_convertible<std::shared_ptr<ComponentInstance>, std::shared_ptr<Object> >();
 }
 
+ComponentTemplate::ptr ComponentLibrary::find_component(boost::filesystem::path name)
+{
+	name = resolve_path(name);
+	auto fItr = _components.find(name);
+	if (fItr != _components.end())
+		return fItr->second;
+	return ComponentTemplate::ptr();
+}
+
 void ComponentLibrary::load_component(boost::filesystem::path name, const boost::filesystem::path& ownerPath /*= boost::filesystem::path()*/)
 {
-	name = ComponentLibrary::resolve_path(name, ownerPath);
-	if(_components.find(name) != _components.end())
-		return ;
+	name = resolve_path(name, ownerPath);
+	if (_components.find(name) != _components.end())
+		return;
 
 	ComponentTemplate::ptr comp = std::make_shared<ComponentTemplate>();
 
@@ -537,10 +673,68 @@ void ComponentLibrary::load_component(boost::filesystem::path name, const boost:
 	_components[name] = comp;
 
 	// load sub components
-	for(auto itr = comp->_components.begin(); itr != comp->_components.end(); ++itr)
+	for (auto itr = comp->_components.begin(); itr != comp->_components.end(); ++itr)
 		load_component(itr->second.path, name.parent_path());
 }
 
+effect::Effect::ptr ComponentLibrary::get_shader(boost::filesystem::path name, const boost::filesystem::path& ownerPath /*= boost::filesystem::path()*/)
+{
+	name = resolve_path(name, ownerPath);
+	auto fItr = _shaders.find(name);
+	if (fItr != _shaders.end())
+		return fItr->second;
+
+	auto shader = std::make_shared<effect::Effect>();
+	if (!shader->load(name))
+		return effect::Effect::ptr();
+
+	_shaders[name] = shader;
+	return shader;
+}
+
+glbase::Texture::ptr ComponentLibrary::get_texture(boost::filesystem::path name, const boost::filesystem::path& ownerPath /*= boost::filesystem::path()*/)
+{
+	name = resolve_path(name, ownerPath);
+	auto fItr = _textures.find(name);
+	if (fItr != _textures.end())
+		return fItr->second;
+
+	if (!boost::filesystem::exists(name))
+		return glbase::Texture::ptr();
+	try
+	{
+		auto texture = std::make_shared<glbase::Texture>();
+		texture->load(name.string().c_str());
+		if (!texture->valid())
+			return glbase::Texture::ptr();
+		_textures[name] = texture;
+
+		return texture;
+	}
+	catch (std::exception)
+	{
+	}
+
+	return glbase::Texture::ptr();
+}
+
+
+//void ComponentLibrary::load_component_as(boost::filesystem::path name, const boost::filesystem::path& loadAs, const boost::filesystem::path& ownerPath /*= boost::filesystem::path()*/)
+//{
+//	name = ComponentLibrary::resolve_path(name, ownerPath);
+//	if (_components.find(name) != _components.end())
+//		return;
+//
+//	ComponentTemplate::ptr comp = std::make_shared<ComponentTemplate>();
+//
+//	comp->load(name);
+//
+//	_components[loadAs] = comp;
+//
+//	// load sub components
+//	for (auto itr = comp->_components.begin(); itr != comp->_components.end(); ++itr)
+//		load_component(itr->second.path, name.parent_path());
+//}
 
 template < class Cont_ >
 void insert_and_replace(Cont_& target, Cont_& src)
@@ -556,7 +750,7 @@ ComponentInstance::ptr ComponentLibrary::instance_component(const boost::filesys
 
 	auto resolvedType = resolve_path(type, ownerPath);
 	auto compItr = _components.find(resolvedType);
-	if(compItr == _components.end())
+	if (compItr == _components.end())
 	{
 		return ComponentInstance::ptr();
 	}
@@ -609,7 +803,6 @@ ComponentInstance::ptr ComponentLibrary::instance_component(const boost::filesys
 	return inst;
 }
 
-
 void ComponentLibrary::add_include_directory(const boost::filesystem::path& dir)
 {
 	_includeDirectories.insert(dir);
@@ -635,7 +828,14 @@ boost::filesystem::path ComponentLibrary::resolve_path(boost::filesystem::path f
 		if (itr != _includeDirectories.end())
 			finalPath = *itr / file;
 	}
-	finalPath = canonical(finalPath);
+	try
+	{
+		finalPath = canonical(finalPath);
+	}
+	catch (filesystem_error)
+	{
+	}
+
 	finalPath.make_preferred();
 	return finalPath;
 }
@@ -647,5 +847,7 @@ boost::filesystem::path ComponentLibrary::resolve_path(boost::filesystem::path f
 
 std::unordered_map<boost::filesystem::path, ComponentTemplate::ptr, ComponentLibrary::PathHash> ComponentLibrary::_components;
 std::unordered_set<boost::filesystem::path, ComponentLibrary::PathHash> ComponentLibrary::_includeDirectories;
+std::unordered_map<boost::filesystem::path, effect::Effect::ptr, ComponentLibrary::PathHash> ComponentLibrary::_shaders;
+std::unordered_map<boost::filesystem::path, glbase::Texture::ptr, ComponentLibrary::PathHash> ComponentLibrary::_textures;
 
 }

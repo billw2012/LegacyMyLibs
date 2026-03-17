@@ -1,15 +1,21 @@
+// boost
+#include <boost\functional\hash.hpp>
+#include <boost\filesystem\operations.hpp>
+
 // solution
 #include "fbo\framebufferObject.h"
-#include "Math\misc.hpp"
-#include "Math\matrix4.hpp"
-#include "Math\transformation.hpp"
-#include "Scene\material.hpp"
+#include "Math\misc.h"
+#include "Math\matrix4.h"
+#include "Math\transformation.h"
+#include "Scene\material.h"
 #include "Render\utils_screen_space.h"
-#include "GLbase\videomemorymanager.hpp"
+#include "GLBase/videomemorymanager.hpp"
 
 // project
 #include "element.h"
 #include "renderer.h"
+#include "gltext/gltext.h"
+
 
 namespace vice {;
 
@@ -238,17 +244,32 @@ scene::Material::ptr get_stencil_material()
 	return sMaterial;
 }
 
+scene::Material::ptr get_font_material()
+{
+	// TODO: shader set by element etc.
+	static scene::Material::ptr sMaterial;
+	static effect::Effect::ptr sEffect;
+	if (!sMaterial)
+	{
+		sMaterial = std::make_shared<scene::Material>();
+		sEffect = std::make_shared<effect::Effect>();
+		if (!sEffect->load("../data/vice/shaders/basic_font_shader.xml"))
+			std::cout << "Error: " << sEffect->get_last_error() << std::endl;
+		sMaterial->set_effect(sEffect);
+	}
+	return sMaterial;
+}
 void draw_rect(float x, float y, float width, float height)
 {
 	static scene::Geometry::ptr sRect;
 	if(!sRect)
 	{
-		sRect = render::utils::create_new_screen_quad(x, y, width, height);
+		sRect = render::utils::create_new_screen_quad(x, y, width, height, render::utils::UVType::Relative);
 		CHECK_OPENGL_ERRORS;
 	}
 	else
 	{
-		render::utils::update_screen_quad(sRect, x, y, width, height);
+		render::utils::update_screen_quad(sRect, x, y, width, height, render::utils::UVType::Relative);
 		CHECK_OPENGL_ERRORS;
 	}
 	if(glbase::VideoMemoryManager::load_buffers(sRect->get_tris(), sRect->get_verts()))
@@ -261,9 +282,63 @@ void draw_rect(float x, float y, float width, float height)
 	}
 }
 
-void draw_text(float x, float y, float width, float height, const std::string& text)
+using namespace gltext;
+
+struct FontManager
 {
 
+	Font::ptr get_font(const std::string& fontName, int textSize)
+	{
+		auto fItr = _fontMap.find({ fontName, textSize });
+		if (fItr != _fontMap.end())
+			return fItr->second;
+		auto path = ComponentLibrary::resolve_path(fontName + ".ttf");
+		if (!boost::filesystem::exists(path))
+			return Font::ptr();
+		try
+		{
+			auto newFont = std::make_shared<Font>(path.string(), textSize, 1024, 1024);
+			_fontMap.insert({ { fontName, textSize }, newFont });
+			return newFont;
+		}
+		catch (FtException excep)
+		{
+			return Font::ptr();
+		}
+	}
+
+private:
+	struct FontSpec
+	{
+		std::string name;
+		int size;
+
+		bool operator==(const FontSpec& other) const
+		{
+			return size == other.size && name == other.name;
+		}
+
+		friend std::size_t hash_value(const FontSpec& val)
+		{
+			std::size_t seed = 0;
+			boost::hash_combine(seed, val.name);
+			boost::hash_combine(seed, val.size);
+			return seed;
+		}
+	};
+
+	std::unordered_map<FontSpec, Font::ptr, boost::hash<FontSpec>> _fontMap;
+};
+
+std::unique_ptr<FontManager> sFontManager;
+
+void draw_text(float x, float y, float width, float height, const std::string& text, const std::string& fontName, int textSize, const Color& color, 
+	Font::HAlignment halign, Font::VAlignment valign)
+{
+	//static Font font("C:\\Programming\\src\\ViceEdit\\data\\vice\\fonts\\arial.ttf", 32, 1024, 1024);
+	const auto& font = sFontManager->get_font(fontName, textSize);
+	if (font)
+		font->draw(text, math::Rectanglef{ x, y + height, x + width, y }, math::Vector4f(color.r, color.g, color.b, color.a), halign, valign, get_font_material());
 }
 
 /*
@@ -332,19 +407,21 @@ void draw_node(const ComponentInstance::LayoutNode& node, int depth, const math:
 	glStencilOp(GL_KEEP, GL_INCR, GL_INCR);
 	// only draw where stencil value is greater or equal to depth, so we cull everything outside the parent
 	glStencilFunc(GL_LEQUAL, depth, MASKON);
-	
+	glStencilMask(MASKON);
+
 	math::Matrix4f transform = camera * object->get_global_transform();
 
 	if(object->get_type() == Object::ElementType)
 	{
-		auto element = static_cast<const Element*>(object);
-		glStencilMask(MASKON);
+		auto element = static_cast<Element*>(object);
+
+		element->update_shader_values();
 
 		// bind shader
-		scene::Material::ptr material = get_material(object);
+		scene::Material::ptr material = element->get_material();
 		material->set_parameter("background", buffer.background);
-		Color color = element->get_color();
-		material->set_parameter("color", math::Vector4f(color.r, color.g, color.b, color.a));
+		//Color color = element->get_color();
+		//material->set_parameter("color", math::Vector4f(color.r, color.g, color.b, color.a));
 		material->set_parameter("MODELVIEWPROJMAT", transform);
 		material->bind();
 		CHECK_OPENGL_ERRORS;
@@ -353,8 +430,15 @@ void draw_node(const ComponentInstance::LayoutNode& node, int depth, const math:
 		// only want to update stencil for the background
 		
 		glStencilMask(MASKOFF);
-		draw_text(0, 0, element->get_width(), element->get_height(), element->get_text());
-		
+		// only draw where stencil value is greater or equal to depth, so we cull everything outside the parent
+		glStencilFunc(GL_EQUAL, depth+1, MASKON);
+		//glDisable(GL_STENCIL_TEST);
+		auto& fontMaterial = get_font_material();
+		//fontMaterial->set_parameter("color", math::Vector4f::One);
+		fontMaterial->set_parameter("MODELVIEWPROJMAT", transform);
+		draw_text(0, 0, element->get_width(), element->get_height(), element->get_text(), element->get_font(), element->get_text_size(), element->get_text_color(), element->get_text_horiz_align(), element->get_text_vert_align());
+		//glEnable(GL_STENCIL_TEST);
+
 		scene::Material::unbind();
 		CHECK_OPENGL_ERRORS;
 		// update the background
@@ -362,7 +446,6 @@ void draw_node(const ComponentInstance::LayoutNode& node, int depth, const math:
 	}
 	else // a component, still need to update the stencil though
 	{
-		glStencilMask(MASKON);
 		// bind a material just for drawing stencil values
 		scene::Material::ptr material = get_stencil_material();
 		material->set_parameter("MODELVIEWPROJMAT", transform);
@@ -404,7 +487,7 @@ void draw_node(const ComponentInstance::LayoutNode& node, int depth, const math:
 		scene::Material::unbind();
 		CHECK_OPENGL_ERRORS;
 
-		glDisable(GL_STENCIL_TEST);
+		glEnable(GL_STENCIL_TEST);
 	}
 
 	// clear our stencil changes
@@ -423,12 +506,47 @@ void render_component_root( const ComponentInstance& component, CopyBuffer& buff
 {
 	int depth = 0;
 	math::Matrix4f camera = component.get_camera();
+	glEnable(GL_STENCIL_TEST);
 	draw_node(component.get_layout_root(), depth, camera, buffer);
+	glDisable(GL_STENCIL_TEST);
+
+#if defined(VICE_DESIGNER)
+	math::Matrix4f transform = camera * component.get_global_transform();
+
+	if (component.is_snap_x_enabled() || component.is_snap_y_enabled())
+	{
+		// bind shader
+		scene::Material::ptr material = get_selection_material();
+		Color color(1.0f, 0.0f, 0.0f, 1.0f);
+		material->set_parameter("color", math::Vector4f(color.r, color.g, color.b, color.a));
+		material->set_parameter("MODELVIEWPROJMAT", transform);
+		material->bind();
+		CHECK_OPENGL_ERRORS;
+
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		if (component.is_snap_x_enabled())
+			draw_rect(component.get_snap_x(), 0, 0, component.get_height());
+		if (component.is_snap_y_enabled())
+			draw_rect(0, component.get_snap_y(), component.get_width(), 0);
+		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	}
+#endif
 }
 
 };
 
-void vice::Renderer::render( const ComponentInstance& component )
+void Renderer::static_init()
+{
+	sFontManager = std::make_unique<FontManager>();
+	//return std::shared_ptr<void>(NULL, [](void*) { Renderer::static_release(); });
+}
+
+void Renderer::static_release()
+{
+	sFontManager.reset();
+}
+
+void Renderer::render( const ComponentInstance& component )
 {
 	auto target = component.get_texture();
 	auto background = component.get_background();
@@ -443,7 +561,6 @@ void vice::Renderer::render( const ComponentInstance& component )
 
 	copyBuffer.back_copy();
 
-	glEnable(GL_STENCIL_TEST);
 	glViewport(0, 0, target->width(), target->height());
 	CHECK_OPENGL_ERRORS;
 	copyBuffer.writeBuffer.fbo->Bind();
@@ -453,9 +570,9 @@ void vice::Renderer::render( const ComponentInstance& component )
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 	CHECK_OPENGL_ERRORS;
 	render_component_root(component, copyBuffer);
+
 	FramebufferObject::Disable();
 	CHECK_OPENGL_ERRORS;
-	glDisable(GL_STENCIL_TEST);
 }
 
 }

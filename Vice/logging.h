@@ -31,7 +31,13 @@ struct Logging
 			, _level(level)
 		{}
 
-		~LogMessage() 
+		LogMessage(LogMessage&& other)
+			: _owner(other._owner)
+			, _level(other._level)
+			, _ss(std::move(other._ss))
+		{}
+
+		~LogMessage()
 		{
 			_owner->append(*this);
 		}
@@ -55,7 +61,7 @@ struct Logging
 
 	LogMessage log (const ErrorLevel& errorLevel)
 	{
-		return LogMessage(errorLevel, this);
+		return std::move(LogMessage(errorLevel, this));
 	}
 
 	void append(const LogMessage& msg);

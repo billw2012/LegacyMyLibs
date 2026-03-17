@@ -41,12 +41,12 @@ void load_animation(Cont_& cont, const TiXmlElement* parentElement)
 		std::string propName = null_safe_str(propNode->Attribute("property"));
 		Object::PropType::type propType = Object::PropType::from_string(null_safe_str(propNode->Attribute("type")));
 		AnimatedProperty& anim = cont[ObjectPropertyID(propName, objName)];
-		for(const TiXmlElement* keyNode = parentElement->FirstChildElement("key"); 
+		for (const TiXmlElement* keyNode = propNode->FirstChildElement("key");
 			keyNode; keyNode = keyNode->NextSiblingElement("key"))
 		{
-			anim.insert_key(parse_val<float>(null_safe_str(propNode->Attribute("t"))),
+			anim.insert_key(parse_val<float>(null_safe_str(keyNode->Attribute("t"))),
 				Object::string_to_property(Object::StringType(
-				null_safe_str(propNode->Attribute("value")), propType)));
+				null_safe_str(keyNode->Attribute("value")), propType)));
 		}
 	}
 }
@@ -122,6 +122,11 @@ void ComponentTemplate::load( const boost::filesystem::path& file )
 		unique_push(_scripts, script);
 		ScriptLibrary::register_script(script, foundPath.parent_path());
 	}
+}
+
+void ComponentTemplate::create(const std::string& name)
+{
+	_name = name;
 }
 
 void ComponentTemplate::from_instance(const ComponentInstance* inst)
@@ -237,7 +242,12 @@ Object::property_variant AnimatedProperty::get( float t ) const
 
 void AnimatedProperty::insert_key(float t, const Object::property_variant& val)
 {
-	keys.insert(std::lower_bound(std::begin(keys), std::end(keys), Key(t)), Key(t, val));
+	auto fItr = std::lower_bound(std::begin(keys), std::end(keys), Key(t));
+	// replace key if key with t already exists
+	if (fItr != keys.end() && fItr->t == t)
+		fItr->val = val;
+	else
+		keys.insert(fItr, Key(t, val));
 }
 
 

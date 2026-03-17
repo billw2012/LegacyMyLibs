@@ -89,6 +89,7 @@ struct ComponentTemplate
 
 private:
 	void load(const boost::filesystem::path& file);
+	void create(const std::string& name);
 	//ComponentInstance* create_instance() const;
 
 	//typedef std::unordered_map<std::string, Object::property_variant> PropertyMap;
@@ -122,6 +123,16 @@ private:
 	// its direct children.
 
 	AnimationMap _animations;
+};
+
+}
+
+namespace std { ;
+
+template <> 
+class hash<vice::ObjectPropertyID> : public vice::PropIDHash
+{
+
 };
 
 }

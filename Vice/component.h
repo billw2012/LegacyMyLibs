@@ -6,7 +6,7 @@
 #include <set>
 
 // solution
-#include "GLBase/texture.hpp"
+#include "GLBase/texture.h"
 #include "utils/time_type.h"
 
 // project
@@ -41,8 +41,13 @@ struct ComponentInstance : public Object
 		typedef std::shared_ptr<LayoutNode> ptr;
 
 		Object* object;
+		Object* parent;
 
-		LayoutNode(Object* object_ = nullptr) : object(object_) {}
+		LayoutNode(Object* object_ = nullptr, Object* parent_ = nullptr) 
+			: object(object_)
+			, parent(parent_) 
+		{
+		}
 
 		struct LayoutNodePtrSort
 		{
@@ -85,10 +90,14 @@ struct ComponentInstance : public Object
 	void set_background(const glbase::Texture::ptr& background);
 	const glbase::Texture::ptr& get_background() const;
 
-	void update_animation();
+	void update_animation(const double t);
 	void update_layout();
 
-	void update(const float t);
+	void update(const double t);
+
+	void activate_anim(const std::string& anim);
+	void deactivate_all_anims();
+
 
 	// Functions overridden in derived python classes >>
 	virtual void mouse_move(float x, float y) { std::cout << "mouse_move\n"; }
@@ -97,13 +106,11 @@ struct ComponentInstance : public Object
 	virtual void update_python() { std::cout << "update_python\n"; }
 	// << Functions overriden in derived python classes >>
 
-#if defined(VICE_DESIGNER)
+#if defined(VICE_DESIGNER) // design mode functions >>>
 
-	// design mode functions >>>
 	void set_root_transform(const math::Matrix4f& matrix) { _rootTransform = matrix; }
 	void save(const boost::filesystem::path& file = boost::filesystem::path());
 	ComponentTemplate::ptr get_template() const;
-	const boost::filesystem::path& get_load_path() const { return _template->_fullPath; }
 	std::string get_unique_name(const std::string& baseName) const;
 	int get_top_order() const;
 	bool contains_component(const boost::filesystem::path& path) const;
@@ -112,12 +119,30 @@ struct ComponentInstance : public Object
 	void synch_template_properties();
 	// synch the entire template for this component
 	void update_template();
-	// << design mode functions
+	const std::vector<Object::ptr>& get_children() const { return _children; }
+	std::vector<Object*> get_children_recusive(const Object* object) const;
 
-#endif
+	void set_snap_x(float x) { _snapXEnabled = true; _snapX = x; }
+	void set_snap_y(float y) { _snapYEnabled = true; _snapY = y; }
+	void disable_snap() { _snapXEnabled = _snapYEnabled = false; }
+	bool is_snap_x_enabled() const { return _snapXEnabled; }
+	float get_snap_x() const { return _snapX; }
+	bool is_snap_y_enabled() const { return _snapYEnabled; }
+	float get_snap_y() const { return _snapY; }
+
+#endif // << design mode functions
+
+	const boost::filesystem::path& get_load_path() const { return _template->_fullPath; }
 
 	const LayoutNode& get_layout_root() const { return _layoutRoot; }
-	const LayoutNode* get_layout_node(const Object* obj) const;
+	const LayoutNode* get_layout_node(Object* obj) const;
+
+	Object* get_object_parent(Object* object);
+	const Object* get_object_parent(Object* object) const;
+
+	void size_changing(Object* object);
+	void size_changed(Object* object);
+
 	math::Matrix4f get_camera() const;
 
 	Object* get_hit_object_global(float x, float y);
@@ -143,21 +168,41 @@ private:
 	glbase::Texture::ptr _texture, _background;
 
 	LayoutNode _layoutRoot;
-	std::unordered_map<const Object*, LayoutNode*> _objectLayoutMap;
+	std::unordered_map<Object*, LayoutNode*> _objectLayoutMap;
 
-	static void build_layout_heirarchy(const ComponentInstance* comp, LayoutNode& compNode, std::unordered_map<const Object*, LayoutNode*>& objLayoutMap);
+	static void build_layout_heirarchy(const ComponentInstance* comp, LayoutNode& compNode, std::unordered_map<Object*, LayoutNode*>& objLayoutMap);
 	static void recursive_layout(LayoutNode* node, float layoutWidth, float layoutHeight);
 
 	math::Matrix4f _rootTransform;
+
+	struct ActiveAnim
+	{
+		ActiveAnim() : t(0) {}
+		double t;
+	};
+
+	double _lastT;
+	std::unordered_map<std::string, ActiveAnim> _activeAnimations;
+
+#if defined(VICE_DESIGNER) // design mode functions >>>
+	bool _snapXEnabled, _snapYEnabled;
+	float _snapX, _snapY;
+#endif 
+
 };
 
 struct ComponentLibrary
 {
+	static ComponentTemplate::ptr find_component(boost::filesystem::path name);
 	static void load_component(boost::filesystem::path name, const boost::filesystem::path& ownerPath = boost::filesystem::path());
+	//static void load_component_as(boost::filesystem::path name, const boost::filesystem::path& loadAs, const boost::filesystem::path& ownerPath = boost::filesystem::path());
 	static ComponentInstance::ptr instance_component(const boost::filesystem::path& type, const std::string& name, const boost::filesystem::path& ownerPath = boost::filesystem::path());
 
 	static void add_include_directory(const boost::filesystem::path& dir);
 	static boost::filesystem::path resolve_path(boost::filesystem::path file, const boost::filesystem::path& context = boost::filesystem::path());
+
+	static effect::Effect::ptr get_shader(boost::filesystem::path name, const boost::filesystem::path& ownerPath = boost::filesystem::path());
+	static glbase::Texture::ptr get_texture(boost::filesystem::path name, const boost::filesystem::path& ownerPath = boost::filesystem::path());
 
 private:
 	//static void apply_properties(const Object& obj, const ComponentTemplate::AnimatedPropertyMap& props );
@@ -167,14 +212,12 @@ private:
 		size_t operator()(const boost::filesystem::path& path) const 
 		{
 			return boost::filesystem::hash_value(path);
-			//std::string str = path.string();
-			//std::transform(str.begin(), str.end(), str.begin(), ::toupper);
-			//return std::hash<std::string>()(str);
 		}
 	};
 	static std::unordered_map<boost::filesystem::path, ComponentTemplate::ptr, PathHash> _components;
-
 	static std::unordered_set<boost::filesystem::path, PathHash> _includeDirectories;
+	static std::unordered_map<boost::filesystem::path, effect::Effect::ptr, PathHash> _shaders;
+	static std::unordered_map<boost::filesystem::path, glbase::Texture::ptr, PathHash> _textures;
 };
 
 }

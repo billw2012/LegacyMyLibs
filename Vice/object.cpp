@@ -34,12 +34,44 @@ struct ObjectReg
 
 static ObjectReg gReg;
 
+std::unordered_map<std::string, Object::property_variant> Object::_defaultProperties {
+	{
+		{ std::string("order"), Object::property_variant(int(0)) },
+		{ std::string("parent"), Object::property_variant(std::string()) },
+		{ std::string("font"), Object::property_variant(std::string()) },
+		{ std::string("horiz_align"), Object::property_variant(gltext::Font::HAlignment::AlignLeft) },
+		{ std::string("vert_align"), Object::property_variant(gltext::Font::VAlignment::AlignTop) },
+		{ std::string("text_color"), Object::property_variant(Color()) },
+		{ std::string("text_size"), Object::property_variant(int(0)) },
+		{ std::string("x"), Object::property_variant(float(0)) },
+		{ std::string("y"), Object::property_variant(float(0)) },
+		{ std::string("width"), Object::property_variant(float(0)) },
+		{ std::string("height"), Object::property_variant(float(0)) },
+		{ std::string("layout_left"), Object::property_variant(Object::PinType::PinMin) },
+		{ std::string("layout_right"), Object::property_variant(Object::PinType::PinMin) },
+		{ std::string("layout_top"), Object::property_variant(Object::PinType::PinMin) },
+		{ std::string("layout_bottom"), Object::property_variant(Object::PinType::PinMin) },
+		{ std::string("text"), Object::property_variant(std::string()) },
+		{ std::string("text_size"), Object::property_variant(int(12)) },
+		//{ std::string("color"), Object::property_variant(Color()) },
+		{ std::string("font"), Object::property_variant(std::string("arial")) },
+		{ std::string("text_color"), Object::property_variant(Color()) },
+		{ std::string("shader"), Object::property_variant(std::string("element_shader")) },
+	}
+};
+
 Object::Object(const std::string& name /*= std::string()*/, type type_ /*= ObjectType*/) 
 	: _name(name)
 	, _owner(nullptr)
 	, _type(type_)
 	, _highlighted(false)
 	, _selected(false)
+	, _actualLeft(0)
+	, _actualRight(0)
+	, _actualTop(0)
+	, _actualBottom(0)
+	//, _parentWidth(0)
+	//, _parentHeight(0)
 {
 	gReg.activeObjects.insert(this);
 }
@@ -68,7 +100,7 @@ void Object::set_parent(const std::string& str)
 
 int Object::get_order() const
 {
-	return get_property_or_default("order", 0);
+	return get_property_final_typed<int>("order");
 }
 
 void Object::set_order(int order)
@@ -78,7 +110,7 @@ void Object::set_order(int order)
 
 std::string Object::get_parent() const
 {
-	return get_property_or_default("parent", std::string());
+	return get_property_final_typed<std::string>("parent");
 }
 
 void Object::set_position( float x, float y )
@@ -109,12 +141,12 @@ void Object::set_y_layout(float y)
 
 float Object::get_x() const
 {
-	return get_property_or_default("x", 0.0f);
+	return get_property_final_typed<float>("x");
 }
 
 float Object::get_y() const
 {
-	return get_property_or_default("y", 0.0f);
+	return get_property_final_typed<float>("y");
 }
 
 void Object::set_size( float width, float height )
@@ -145,38 +177,78 @@ void Object::set_height_layout(float height)
 
 float Object::get_width() const
 {
-	return get_property_or_default("width", 0.0f);
+	return get_property_final_typed<float>("width");
 }
 
 float Object::get_height() const
 {
-	return get_property_or_default("height", 0.0f);
+	return get_property_final_typed<float>("height");
 }
 
 
 Object::PinType::type Object::get_layout_left() const
 {
-	return get_property_or_default("layout_left", PinType::PinMin);
+	return get_property_final_typed<PinType::type>("layout_left");
 }
 
 Object::PinType::type Object::get_layout_right() const
 {
-	return get_property_or_default("layout_right", PinType::PinMin);
+	return get_property_final_typed<PinType::type>("layout_right");
 }
 
 Object::PinType::type Object::get_layout_top() const
 {
-	return get_property_or_default("layout_top", PinType::PinMin);
+	return get_property_final_typed<PinType::type>("layout_top");
 }
 
 Object::PinType::type Object::get_layout_bottom() const
 {
-	return get_property_or_default("layout_bottom", PinType::PinMin);
+	return get_property_final_typed<PinType::type>("layout_bottom");
 }
 
-void Object::set_property( const std::string& name, const property_variant& value )
+/*
+
+Layout:
+when parent width changes re-layout direct children (their size changes will cause recursive layout).
+if child x is scaled:
+new child x is new parent width * x ratio
+
+x ratio is child x / parent width when x is changed explicitly (rather than by layout change).
+
+*/
+void Object::set_property( const std::string& name, const property_variant& value, bool layout /*= false*/ )
 {
+	// if we are changing width or height then we need to re-layout children
+	if (name == "width" || name == "height")
+	{
+		_owner->size_changing(this);
+	}
 	_properties[name] = value;
+	if (name == "width" || name == "height")
+	{
+		_owner->size_changed(this);
+	}
+
+	//if ((layout || _actualLeft == 0.0f) && name == "x")
+	//{
+	//	_parentWidth = get_parent_object()->get_width();
+	//	_actualLeft = get_x() / _parentWidth;
+	//}
+	//else if ((layout || _actualTop == 0.0f) && name == "y")
+	//{
+	//	_parentHeight = get_parent_object()->get_height();
+	//	_actualTop = get_y() / _parentHeight;
+	//}
+	//else if ((layout || _actualRight == 0.0f) && name == "width")
+	//{
+	//	_parentWidth = get_parent_object()->get_width();
+	//	_actualRight = (get_x() + get_width()) / _parentWidth;
+	//}
+	//else if ((layout || _actualBottom == 0.0f) && name == "height")
+	//{
+	//	_parentHeight = get_parent_object()->get_height();
+	//	_actualBottom = (get_y() + get_height()) / _parentHeight;
+	//}
 }
 
 void Object::set_animated_property( const std::string& name, const property_variant& value )
@@ -184,28 +256,35 @@ void Object::set_animated_property( const std::string& name, const property_vari
 	_animatedProperties[name] = value;
 }
 
-void Object::set_layout_property(const std::string& name, const property_variant& value)
+std::pair<Object::property_variant, bool> Object::get_property_base(const std::string& name) const
 {
-	_layoutProperties[name] = value;
+	auto val = _properties.find(name);
+	if (val != _properties.end())
+		return{ val->second, true };
+	auto fItr = _defaultProperties.find(name);//default_;
+	if (fItr != _defaultProperties.end())
+		return{ fItr->second, true };
+	return{ property_variant(), false };
 }
 
-Object::property_variant Object::get_property_base(const std::string& name) const
+std::pair<Object::property_variant, bool> Object::get_property_final(const std::string& name) const
 {
-	auto nonAnimatied = _properties.find(name);
-	if (nonAnimatied != _properties.end())
-		return nonAnimatied->second;
-	return property_variant();
-}
+	//auto layout = _layoutProperties.find(name);
+	//if (layout != _layoutProperties.end())
+	//	return{ layout->second, true };
 
-Object::property_variant Object::get_property(const std::string& name) const
-{
-	auto animated = _animatedProperties.find(name);
-	if (animated != _animatedProperties.end())
-		return animated->second;
-	auto nonAnimatied = _properties.find(name);
-	if (nonAnimatied != _properties.end())
-		return nonAnimatied->second;
-	return property_variant();
+	//auto animated = _animatedProperties.find(name);
+	//if (animated != _animatedProperties.end())
+	//	return{ animated->second, true };
+
+	//auto nonAnimatied = _properties.find(name);
+	//if (nonAnimatied != _properties.end())
+	//	return{ nonAnimatied->second, true };
+
+	//auto fItr = _defaultProperties.find(name);//default_;
+	//if (fItr != _defaultProperties.end())
+	//	return{ fItr->second, true };
+	return{ property_variant(), false };
 }
 
 void Object::register_type()
@@ -255,6 +334,16 @@ ComponentInstance* Object::get_owner()
 	return _owner;
 }
 
+Object* Object::get_parent_object()
+{
+	return get_owner()->get_object_parent(this);
+}
+
+const Object* Object::get_parent_object() const
+{
+	return get_owner_const()->get_object_parent(this);
+}
+
 bool Object::is_hit_global(float x, float y) const
 {
 	math::Vector2f localPos = from_global(math::Vector2f(x, y));
@@ -290,7 +379,7 @@ void Object::clear_animated_properties()
 
 void Object::clear_layout_properties()
 {
-	_layoutProperties.clear();
+	//_layoutProperties.clear();
 }
 
 void Color::register_type()
@@ -342,6 +431,20 @@ struct ToStringVisitor : public boost::static_visitor < >
 		_strType = Object::StringType(ss.str(), Object::PropType::Layout);
 	}
 
+	void operator()(gltext::Font::HAlignment val) const
+	{
+		std::stringstream ss;
+		ss << val;
+		_strType = Object::StringType(ss.str(), Object::PropType::HAlignment);
+	}
+
+	void operator()(gltext::Font::VAlignment val) const
+	{
+		std::stringstream ss;
+		ss << val;
+		_strType = Object::StringType(ss.str(), Object::PropType::VAlignment);
+	}
+
 
 private:
 	Object::StringType& _strType;
@@ -367,45 +470,194 @@ Object::property_variant Object::string_to_property(const StringType& strType)
 		return parse_val<Color>(strType.val);
 	case PropType::Layout:
 		return parse_val<Object::PinType::type>(strType.val);
+	case PropType::HAlignment:
+		return parse_val<gltext::Font::HAlignment>(strType.val);
+	case PropType::VAlignment:
+		return parse_val<gltext::Font::VAlignment>(strType.val);
 	default:
 		return strType.val;
 	};
 }
 
+boost::filesystem::path Object::get_load_context() const
+{
+	return _owner->get_load_path().parent_path();
+}
+
+void Object::parent_size_changing(Object* parent)
+{
+	//_parentWidth = parent->get_width();
+	//_parentHeight = parent->get_height();
+	//auto x = get_x();
+	//auto y = get_x();
+	//_rightRatio = (x + get_width()) / _parentWidth;
+	//_topRatio = y / _parentHeight;
+	//_bottomRatio = (y + get_height()) / _parentHeight;
+}
+
+void Object::parent_size_changed(Object* parent)
+{
+	//auto newParentWidth = parent->get_width();
+	//auto newParentHeight = parent->get_height();
+
+	//auto layoutLeft = get_layout_left(),
+	//	layoutRight = get_layout_right(),
+	//	layoutTop = get_layout_top(),
+	//	layoutBottom = get_layout_bottom();
+
+	//if (layoutLeft == PinType::Stretch)
+	//	set_property("x", newParentWidth * _actualLeft, true);
+	//else if (layoutLeft == PinType::PinMax)
+	//	set_property("x", newParentWidth - (_parentWidth - (get_x() + get_width())), true);
+
+	//if (layoutRight == PinType::Stretch)
+	//	set_property("width", newParentWidth * _actualRight, true);
+	//else if (layoutRight == PinType::PinMax)
+	//	set_property("width", newParentWidth * _actualRight, true);
+
+	//if (layoutTop == PinType::Stretch)
+	//	set_property("y", newParentHeight * _actualTop, true);
+	//if (layoutBottom == PinType::Stretch)
+	//	set_property("height", newParentHeight * _actualBottom, true);
+}
+
+float Object::get_left() const
+{
+	return get_x();
+}
+
+float Object::get_right() const
+{
+	return get_x() + get_width();
+}
+
+float Object::get_top() const
+{
+	return get_y();
+}
+
+float Object::get_bottom() const
+{
+	return get_y() + get_height();
+}
+
+void Object::set_left(float left)
+{
+	set_x(left);
+}
+
+void Object::set_right(float right)
+{
+	set_width(right - get_x());
+}
+
+void Object::set_top(float top)
+{
+	set_y(top);
+}
+
+void Object::set_bottom(float bottom)
+{
+	set_height(bottom - get_y());
+}
+
+void Object::update_actual_edges()
+{
+	auto parent = get_parent_object();
+	auto parentWidth = parent->get_width();
+	auto parentHeight = parent->get_height();
+
+	auto layoutLeft = get_layout_left(),
+		layoutRight = get_layout_right(),
+		layoutTop = get_layout_top(),
+		layoutBottom = get_layout_bottom();
+
+	switch (get_layout_left())
+	{
+	case PinType::PinMin:	_actualLeft = get_left(); break;
+	case PinType::PinMax:	_actualLeft = parentWidth - get_left(); break;
+	case PinType::Stretch:	_actualLeft = get_left() / parentWidth; break;
+	};
+	switch (get_layout_right())
+	{
+	case PinType::PinMin:	_actualRight = get_right(); break;
+	case PinType::PinMax:	_actualRight = parentWidth - get_right(); break;
+	case PinType::Stretch:	_actualRight = get_right() / parentWidth; break;
+	};
+	switch (get_layout_top())
+	{
+	case PinType::PinMin:	_actualTop = get_top(); break;
+	case PinType::PinMax:	_actualTop = parentHeight - get_top(); break;
+	case PinType::Stretch:	_actualTop = get_top() / parentHeight; break;
+	};
+	switch (get_layout_bottom())
+	{
+	case PinType::PinMin:	_actualBottom = get_bottom(); break;
+	case PinType::PinMax:	_actualBottom = parentHeight - get_bottom(); break;
+	case PinType::Stretch:	_actualBottom = get_bottom() / parentHeight; break;
+	};
+}
 
 std::string Object::PropType::to_string(type val)
 {
 	switch (val)
 	{
-	case PropType::Int:		return "int";
-	case PropType::Float:	return "float";
-	case PropType::Color:	return "color";
-	case PropType::Layout:	return "layout";
-	default:				return "string";
+	case PropType::Int:			return "int";
+	case PropType::Float:		return "float";
+	case PropType::Color:		return "color";
+	case PropType::Layout:		return "layout";
+	case PropType::HAlignment:	return "halignment";
+	case PropType::VAlignment:	return "valignment";
+	default:					return "string";
 	};
 }
 
 vice::Object::PropType::type Object::PropType::from_string(const std::string& str)
 {
-	if (str == "int")		return PropType::Int;
-	if (str == "float")		return PropType::Float;
-	if (str == "color")		return PropType::Color;
-	if (str == "layout")	return PropType::Layout;
+	if (str == "int")			return PropType::Int;
+	if (str == "float")			return PropType::Float;
+	if (str == "color")			return PropType::Color;
+	if (str == "layout")		return PropType::Layout;
+	if (str == "halignment")	return PropType::HAlignment;
+	if (str == "valignment")	return PropType::VAlignment;
 	return String;
 }
 
-Object::PropertyMap Object::get_edit_properties() const
+Object::EditProps Object::get_edit_properties()
 {
-	PropertyMap props;
-	props["parent"] = std::string();
-	props["order"] = 0;
-	props["x"] = props["y"] = props["width"] = props["height"] = 0.0f;
-	props["layout_left"] = props["layout_right"] = props["layout_top"] = props["layout_bottom"] = PinType::PinMin;
-	for (auto prop : _properties)
+	EditProps props;
+	add_edit_defaults(props, { "parent", "order", "x", "y", "width", 
+		"height", "layout_left", "layout_right", "layout_top", "layout_bottom" });
+
+	for (const auto& prop : _properties)
 	{
-		props[prop.first] = prop.second;
+		set_edit_value(props, prop.first, prop.second);
 	}
 	return std::move(props);
+}
+
+void Object::add_edit_default(EditProps& cont, const std::string& name)
+{
+	cont.push_back({ name, _defaultProperties[name] });
+}
+
+void Object::set_edit_value(EditProps& cont, const std::string& name, const property_variant& value)
+{
+	auto fItr = boost::range::find_if(cont, [&](EditProps::value_type& prop) -> bool {
+		return prop.name == name;
+	});
+
+	if (fItr != cont.end())
+		fItr->value = value;
+	else
+		cont.push_back({ name, value });
+}
+
+void Object::add_edit_defaults(EditProps& cont, const std::vector<std::string>& names)
+{
+	for (const auto& name : names)
+		cont.push_back({ name, _defaultProperties[name] });
+	//cont[name] = _defaultProperties[name];
 }
 
 }

@@ -13,11 +13,12 @@
 // solution
 #include "tinyxml.h"
 #include "Math/matrix4.hpp"
-#include "Math/vector2.hpp"
+#include "Math/vector2.h"
 
 // project
 #include "boost_python_wrapper.h"
 #include "xml_utils.h"
+#include "gltext/gltext.h"
 
 namespace vice {;
 
@@ -122,7 +123,14 @@ struct Object : public std::enable_shared_from_this<Object>
 	typedef python_vice_ptr<Object> ptr;
 
 	typedef boost::variant < 
-		std::string, int, float, Color, PinType::type > property_variant;
+		std::string, 
+		int, 
+		float, 
+		Color, 
+		PinType::type, 
+		gltext::Font::HAlignment,
+		gltext::Font::VAlignment
+	> property_variant;
 
 	typedef std::unordered_map<std::string, property_variant> PropertyMap;
 
@@ -168,16 +176,19 @@ struct Object : public std::enable_shared_from_this<Object>
 	float get_pivot_x() const;
 	float get_pivot_y() const;
 
-	void set_property(const std::string& name, const property_variant& value);
-	void set_animated_property(const std::string& name, const property_variant& value);
+	virtual void set_property(const std::string& name, const property_variant& value, bool layout = false);
+	virtual void set_animated_property(const std::string& name, const property_variant& value);
 	void set_layout_property(const std::string& name, const property_variant& value);
 
-	property_variant get_property(const std::string& name) const;
-	property_variant get_property_base(const std::string& name) const;
+	std::pair<property_variant, bool> get_property_final(const std::string& name) const;
+	std::pair<property_variant, bool> get_property_base(const std::string& name) const;
 
 	void set_owner(ComponentInstance* other);
 	const ComponentInstance* get_owner_const() const;
 	ComponentInstance* get_owner();
+
+	Object* get_parent_object();
+	const Object* get_parent_object() const;
 
 	const math::Matrix4f& get_transform() const { return transform; }
 	const math::Matrix4f& get_global_transform() const { return globalTransform; }
@@ -194,16 +205,29 @@ struct Object : public std::enable_shared_from_this<Object>
 	bool is_selected() const { return _selected; }
 	void set_highlighted(bool highlighted) { _highlighted = highlighted; }
 	bool is_highlighted() const { return _highlighted; }
-	virtual PropertyMap get_edit_properties() const;
+
+	struct PropPair
+	{
+		std::string name;
+		property_variant value;
+	};
+	using EditProps = std::vector < PropPair > ;
+
+	virtual EditProps get_edit_properties();
 	// << design mode functions
 
 	const PropertyMap& get_properties() const { return _properties; }
+	boost::filesystem::path get_load_context() const;
+
+
+	void parent_size_changing(Object* parent);
+	void parent_size_changed(Object* parent);
 
 	static void register_type();
 
 	struct PropType {
 		enum type {
-			String, Int, Float, Color, Layout
+			String, Int, Float, Color, Layout, HAlignment, VAlignment
 		};
 		static std::string to_string(type val);
 		static type from_string(const std::string& str);
@@ -222,38 +246,52 @@ struct Object : public std::enable_shared_from_this<Object>
 	static StringType property_to_string(const property_variant& prop);
 	static property_variant string_to_property(const StringType& strType);
 
+private:
+	float get_left() const;
+	float get_right() const;
+	float get_top() const;
+	float get_bottom() const;
+
+	void set_left(float left);
+	void set_right(float right);
+	void set_top(float top);
+	void set_bottom(float bottom);
+
+	void update_actual_edges();
+
 protected:
 	virtual void clear_animated_properties();
 	virtual void clear_layout_properties();
 
 	template < class Ty_ >
-	Ty_ get_property_or_default(const std::string& name, Ty_ default_) const
+	Ty_ get_property_final_typed(const std::string& name) const
 	{
-		auto layout = _layoutProperties.find(name);
-		if (layout != _layoutProperties.end())
-			return boost::get<Ty_>(layout->second);
-
-		auto animated = _animatedProperties.find(name);
-		if(animated != _animatedProperties.end())
-			return boost::get<Ty_>(animated->second);
-
-		auto nonAnimatied = _properties.find(name);
-		if(nonAnimatied != _properties.end())
-			return boost::get<Ty_>(nonAnimatied->second);
-		return default_;
+		return boost::get<Ty_>(get_property_final(name).first);
 	}
 
-	template < class Cont_, class Ty_ >
-	static Ty_ get_property_or_default(const Cont_& cont, const std::string& name, Ty_ default_)
+	template < class Ty_, class Cont_ >
+	static Ty_ get_property_or_default(const Cont_& cont, const std::string& name)
 	{
-		auto layout = cont.find(name);
-		if (layout != cont.end())
-			return boost::get<Ty_>(layout->second);
-		return default_;
+		auto val = cont.find(name);
+		if (val != cont.end())
+			return boost::get<Ty_>(val->second);
+		return get_default<Ty_>(name);
 	}
+
+	template < class Ty_ >
+	static Ty_ get_default(const std::string& name)
+	{
+		return boost::get<Ty_>(_defaultProperties[name]);
+	}
+
+	static void add_edit_default(EditProps& cont, const std::string& name);
+	static void set_edit_value(EditProps& cont, const std::string& name, const property_variant& value);
+	static void add_edit_defaults(EditProps& cont, const std::vector<std::string>& names);
+
+	static std::unordered_map<std::string, Object::property_variant> _defaultProperties;
 
 private:
-	PropertyMap _properties, _animatedProperties, _layoutProperties;
+	PropertyMap _properties, _animatedProperties;
 	std::string _name;
 	ComponentInstance* _owner;
 
@@ -267,6 +305,16 @@ private:
 	// design mode >>
 	bool _highlighted, _selected;
 	// << design mode
+
+	// these values depend on layout mode for each edge:
+	// if it is PinMin then they are the absolute position relative to the minimum parent edge (top left)
+	// if it is PinMax then they are the absolute position relative to the maximum parent edge (bottom right)
+	// if it is Stretch then they are the absolute position / the parent dimensions (x/width, y/height)
+	float _actualLeft, _actualRight, _actualTop, _actualBottom;
+
+	//// if pinning is set to max then old parent width and height are required to determine
+	//// new position when they change.
+	//float _parentWidth, _parentHeight;
 
 protected:
 	type _type;

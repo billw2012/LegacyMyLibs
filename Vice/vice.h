@@ -5,6 +5,7 @@
 namespace vice {;
 
 void init_vice();
+void release_vice();
 
 };
 

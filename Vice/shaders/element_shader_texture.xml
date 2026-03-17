@@ -1,0 +1,17 @@
+<effect name = "element_shader_texture">
+  <state
+    GL_DEPTH_TEST = "false"
+    GL_CULL_FACE = "false"
+    glDepthMask = "false"
+  />
+  <vert_program>
+    <file name = "element_shader_texture_vs.glsl"/>
+    <map_param source = "MODELVIEWPROJMAT" target = "uModelViewProj" />
+  </vert_program>
+  <frag_program>
+    <file name = "element_shader_texture_fs.glsl"/>
+    <map_param source = "background" target = "uBackgroundTexture" />
+    <map_param source = "texture" target = "uTexture" editable = "" type = "string"/>
+    <map_param source = "color" target = "uColor" editable = "" type = "color"/>
+  </frag_program>
+</effect>
