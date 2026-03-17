@@ -37,4 +37,21 @@ private:
 	QWidget* _widget;
 };
 
+struct ScopedBlockSignals
+{
+	ScopedBlockSignals(QObject* widget)
+		: _widget(widget)
+	{
+		_widget->blockSignals(true);
+	}
+
+	~ScopedBlockSignals()
+	{
+		_widget->blockSignals(false);
+	}
+
+private:
+	QObject* _widget;
+};
+
 #endif // !defined(__UTILS_QTUTILS_H__)
