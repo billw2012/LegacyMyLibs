@@ -33,7 +33,7 @@
 
 #include "harfbuzz/hb-ft.h"
 
-#include "GLBase/sdlgl.h"
+#include "GLBase/sdlgl.hpp"
 #include "Utils/on_scope_exit.h"
 
 #include "gltext.h"
