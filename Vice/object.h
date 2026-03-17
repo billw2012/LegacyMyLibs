@@ -13,7 +13,7 @@
 // solution
 #include "tinyxml.h"
 #include "Math/matrix4.hpp"
-#include "Math/vector2.h"
+#include "Math/vector2.hpp"
 
 // project
 #include "boost_python_wrapper.h"

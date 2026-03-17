@@ -4,7 +4,7 @@
 
 // solution
 #include "fbo\framebufferObject.h"
-#include "Math\misc.h"
+#include "Math/misc.hpp"
 #include "Math\matrix4.h"
 #include "Math\transformation.h"
 #include "Scene\material.h"

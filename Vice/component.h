@@ -6,7 +6,7 @@
 #include <set>
 
 // solution
-#include "GLBase/texture.h"
+#include "GLBase/texture.hpp"
 #include "utils/time_type.h"
 
 // project
