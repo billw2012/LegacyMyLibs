@@ -46,6 +46,7 @@ include_directories(..)
 
 add_library(ViceDesigner ${src_files} ${header_files} ${shader_files})
 set_target_properties(ViceDesigner PROPERTIES COMPILE_FLAGS -DVICE_DESIGNER)
+target_link_libraries(ViceDesigner PUBLIC Boost::python Boost::filesystem)
 source_group(Shaders FILES ${shader_files})
 set(INSTALL_DIR ${CMAKE_BINARY_DIR}/../bin)
 install(FILES ${shader_files} DESTINATION ${INSTALL_DIR}/../data/vice/shaders)
