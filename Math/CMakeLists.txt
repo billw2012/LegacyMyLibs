@@ -34,7 +34,5 @@ set(header_files
 	atmospheric2.h
 	)
 
-include_directories(..)
-
-add_library(Math ${header_files})
-set_target_properties(Math PROPERTIES LINKER_LANGUAGE CXX)
+add_library(Math INTERFACE)
+target_include_directories(Math INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/..)
