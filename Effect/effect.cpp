@@ -65,7 +65,7 @@ bool Effect::load_program_node(TiXmlElement* node, std::string& fileName,
 		_lastError = "Missing name attribute in program->file node";
 		return false;
 	}
-	fileName = utils::get_full_path(szFileName, cwd);
+	fileName = misc::get_full_path(szFileName, cwd);
 
 	TiXmlElement* paramMapNode = node->FirstChildElement("map_param");
 	while(paramMapNode)

@@ -476,7 +476,7 @@ std::vector<Object*> ComponentInstance::get_children_recusive(const Object* obje
 
 	std::vector<Object*> children;
 
-	std::deque<std::remove_reference<decltype(layoutNode)>::type> nodes;
+	std::deque<const LayoutNode*> nodes;
 	nodes.push_back(layoutNode);
 
 	while (!nodes.empty())
@@ -832,7 +832,7 @@ boost::filesystem::path ComponentLibrary::resolve_path(boost::filesystem::path f
 	{
 		finalPath = canonical(finalPath);
 	}
-	catch (boost::filesystem::filesystem_error const&)
+	catch (std::exception const&)
 	{
 	}
 
