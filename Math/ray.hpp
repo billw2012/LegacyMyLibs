@@ -9,20 +9,19 @@ LIB_NAMESPACE_START
 namespace math
 {
 
-template < class ValueType, class HashType = hash::DefaultHashType >
+template < class ValueType >
 struct Ray
 {
-	typedef Vector3< ValueType, HashType > VectorType;
-	typedef Ray< ValueType, HashType > this_type;
+	typedef Vector3< ValueType > VectorType;
+	typedef Ray< ValueType > this_type;
 
 	VectorType origin;
 	VectorType direction;
 
-	template < class V, class H >
 	Ray() {}
 
-	template < class V, class H >
-	Ray(const Vector3< V,H >& _origin, Vector3< V,H > _direction) : origin(_origin), direction(_direction) {}
+	template < class V >
+	Ray(const Vector3< V >& _origin, Vector3< V > _direction) : origin(_origin), direction(_direction) {}
 
 	std::pair<float, float> distance(const this_type& ray2) const
 	{
