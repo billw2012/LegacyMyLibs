@@ -1,7 +1,7 @@
 #pragma once
 
 #include "component.h"
-#include "GLBase\texture.h"
+#include "GLBase/texture.hpp"
 
 namespace vice {;
 

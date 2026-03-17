@@ -1,14 +1,12 @@
 // Effect.cpp : Defines the exported functions for the DLL application.
 //
 
-#include "stdafx.h"
-
 #include "effect.h"
 #include "tinyxml.h"
 
 #include "Misc/filefuncs.hpp"
 
-#include "glbase/sdlgl.hpp"
+#include "GLBase/sdlgl.hpp"
 
 #include <boost/scoped_array.hpp>
 #include <iostream>
@@ -53,7 +51,7 @@ Effect::~Effect()
 }
 
 bool Effect::load_program_node(TiXmlElement* node, std::string& fileName,
-					   StringStringSetMap& paramMap, const std::string& cwd)
+	ParameterMap& paramMap, const std::string& cwd)
 {
 	TiXmlElement* fileNode = node->FirstChildElement("file");
 	if(fileNode == NULL) 
@@ -67,7 +65,7 @@ bool Effect::load_program_node(TiXmlElement* node, std::string& fileName,
 		_lastError = "Missing name attribute in program->file node";
 		return false;
 	}
-	fileName = misc::get_full_path(szFileName, cwd);
+	fileName = utils::get_full_path(szFileName, cwd);
 
 	TiXmlElement* paramMapNode = node->FirstChildElement("map_param");
 	while(paramMapNode)
@@ -84,7 +82,15 @@ bool Effect::load_program_node(TiXmlElement* node, std::string& fileName,
 			_lastError = "Missing target attribute in program->map_param node";
 			return false;
 		}
-		paramMap[szSource].insert(szTarget);
+		const char* editable = paramMapNode->Attribute("editable");
+		const char* type = paramMapNode->Attribute("type");
+		auto& param = paramMap[szSource];// .insert(szTarget);
+		param.handles.push_back(ParameterHandle(szTarget));
+		if (editable)
+			param.editable = true;
+		if (type)
+			param.type = type;
+
 		paramMapNode = paramMapNode->NextSiblingElement("map_param");
 	}
 	return true;
@@ -158,13 +164,14 @@ bool Effect::load_internal(const boost::filesystem::path& file, bool force)
 	_name = szName;
 
 	ShaderManager::ShaderHandle vp, fp, sfp, svp;
-	StringStringSetMap vpParamMap, fpParamMap, shadowVPParamMap, shadowFPParamMap;
-	if(load_shader(root, "vert_program", force? (ShaderManager::FORCE_RELOAD | ShaderManager::VERTEX) : ShaderManager::VERTEX,	fullPath.parent_path().string(), vp, vpParamMap) != ShaderLoadErrorType::NoError)
+	//StringStringSetMap vpParamMap, fpParamMap, shadowVPParamMap, shadowFPParamMap;
+	_paramMap.clear();
+	if (load_shader(root, "vert_program", force ? (ShaderManager::FORCE_RELOAD | ShaderManager::VERTEX) : ShaderManager::VERTEX, fullPath.parent_path().string(), vp, _paramMap) != ShaderLoadErrorType::NoError)
 	{
 		show_last_error_if_debug();
 		return false;
 	}
-	if(load_shader(root, "frag_program", force? (ShaderManager::FORCE_RELOAD | ShaderManager::FRAGMENT) : ShaderManager::FRAGMENT, fullPath.parent_path().string(), fp, fpParamMap) == ShaderLoadErrorType::LoadError)
+	if (load_shader(root, "frag_program", force ? (ShaderManager::FORCE_RELOAD | ShaderManager::FRAGMENT) : ShaderManager::FRAGMENT, fullPath.parent_path().string(), fp, _paramMap) == ShaderLoadErrorType::LoadError)
 	{
 		show_last_error_if_debug();
 		return false;
@@ -188,16 +195,16 @@ bool Effect::load_internal(const boost::filesystem::path& file, bool force)
 		show_last_error_if_debug();
 		return false;
 	}
-	_paramMap.clear();
-	map_parameters(_paramMap, vpParamMap, _program);
-	map_parameters(_paramMap, fpParamMap, _program);
+	//map_parameters(_paramMap, vpParamMap, _program);
+	//map_parameters(_paramMap, fpParamMap, _program);
 
-	if(load_shader(root, "shadow_vert_program", force? (ShaderManager::FORCE_RELOAD | ShaderManager::VERTEX) : ShaderManager::VERTEX, fullPath.parent_path().string(), svp, shadowVPParamMap) == ShaderLoadErrorType::LoadError)
+	_shadowParamMap.clear();
+	if (load_shader(root, "shadow_vert_program", force ? (ShaderManager::FORCE_RELOAD | ShaderManager::VERTEX) : ShaderManager::VERTEX, fullPath.parent_path().string(), svp, _shadowParamMap) == ShaderLoadErrorType::LoadError)
 	{
 		show_last_error_if_debug();
 		return false;
 	}
-	if(load_shader(root, "shadow_frag_program", force? (ShaderManager::FORCE_RELOAD | ShaderManager::FRAGMENT) : ShaderManager::FRAGMENT, fullPath.parent_path().string(), sfp, shadowFPParamMap) == ShaderLoadErrorType::LoadError)
+	if (load_shader(root, "shadow_frag_program", force ? (ShaderManager::FORCE_RELOAD | ShaderManager::FRAGMENT) : ShaderManager::FRAGMENT, fullPath.parent_path().string(), sfp, _shadowParamMap) == ShaderLoadErrorType::LoadError)
 	{
 		show_last_error_if_debug();
 		return false;
@@ -220,9 +227,8 @@ bool Effect::load_internal(const boost::filesystem::path& file, bool force)
 			show_last_error_if_debug();
 			return false;
 		}
-		_shadowParamMap.clear();
-		map_parameters(_shadowParamMap, shadowVPParamMap, _shadowProgram);
-		map_parameters(_shadowParamMap, shadowFPParamMap, _shadowProgram);
+		//map_parameters(_shadowParamMap, shadowVPParamMap, _shadowProgram);
+		//map_parameters(_shadowParamMap, shadowFPParamMap, _shadowProgram);
 	}
 
 	TiXmlElement* stateNode = root->FirstChildElement("state");
@@ -238,7 +244,7 @@ bool Effect::load_internal(const boost::filesystem::path& file, bool force)
 
 Effect::ShaderLoadErrorType::type Effect::load_shader(TiXmlElement* root, const char* elemName,
 						 ShaderManager::LoadFlags shaderType, const std::string& fullDir, ShaderManager::ShaderHandle& shader,
-						 StringStringSetMap& paramMap)
+						 ParameterMap& paramMap)
 {
 	shader = 0;
 	TiXmlElement* node = root->FirstChildElement(elemName);
@@ -426,35 +432,35 @@ const std::string& Effect::get_last_error() const
 	return _lastError;
 }
 
-void Effect::map_parameters(StringParamHandleSetMap& paramMap,
-							const StringStringSetMap& namesMap, 
-							ShaderManager::ShaderHandle prog)
-{
-	//GLint uCount;
-	//glGetProgramiv(prog, GL_ACTIVE_UNIFORMS, &uCount);
-
-	for(StringStringSetMap::const_iterator symItr = namesMap.begin(); 
-		symItr != namesMap.end(); ++symItr)
-	{
-		for(StringSet::const_iterator nItr = symItr->second.begin(); 
-			nItr != symItr->second.end(); ++nItr)
-		{
-			//const GLchar* name[] = {nItr->c_str()};
-			//GLuint idx;
-			//glGetUniformIndices(prog, 1, name, &idx);
-			//if(idx == 0xffffffff)
-			//{
-			//	std::cout << "Warning: could not find shader variable handle for \"" <<
-			//		*name << "\" in file \"" << _name << "\"" << std::endl;
-			//}
-			//else
-			//{
-			//	paramMap[symItr->first].insert(idx);
-			//}
-			paramMap[symItr->first].push_back(ParameterHandle(nItr->c_str()));
-		}
-	}
-}
+//void Effect::map_parameters(StringParamHandleSetMap& paramMap,
+//							const StringStringSetMap& namesMap, 
+//							ShaderManager::ShaderHandle prog)
+//{
+//	//GLint uCount;
+//	//glGetProgramiv(prog, GL_ACTIVE_UNIFORMS, &uCount);
+//
+//	for(StringStringSetMap::const_iterator symItr = namesMap.begin(); 
+//		symItr != namesMap.end(); ++symItr)
+//	{
+//		for(StringSet::const_iterator nItr = symItr->second.begin(); 
+//			nItr != symItr->second.end(); ++nItr)
+//		{
+//			//const GLchar* name[] = {nItr->c_str()};
+//			//GLuint idx;
+//			//glGetUniformIndices(prog, 1, name, &idx);
+//			//if(idx == 0xffffffff)
+//			//{
+//			//	std::cout << "Warning: could not find shader variable handle for \"" <<
+//			//		*name << "\" in file \"" << _name << "\"" << std::endl;
+//			//}
+//			//else
+//			//{
+//			//	paramMap[symItr->first].insert(idx);
+//			//}
+//			paramMap[symItr->first].push_back(ParameterHandle(nItr->c_str()));
+//		}
+//	}
+//}
 
 struct ApplyParameterVisitor : public boost::static_visitor<>
 {
@@ -556,28 +562,31 @@ public:
 			CHECK_OPENGL_ERRORS;
 		}
 	}
-	void operator()( glbase::Texture::ptr value ) const
+	void operator()( const glbase::Texture::ptr& value ) const
 	{ 
-		GLuint index = Effect::set_texture(value->target(), value->handle());
-		glUniform1i(_handle, index);
-		CHECK_OPENGL_ERRORS;
-		Effect::bind_texture(index);
-		CHECK_OPENGL_ERRORS;
+		if (value)
+		{
+			GLuint index = Effect::set_texture(value->target(), value->handle());
+			glUniform1i(_handle, index);
+			CHECK_OPENGL_ERRORS;
+			Effect::bind_texture(index);
+			CHECK_OPENGL_ERRORS;
+		}
 	}
 };	
 
 void Effect::set_parameter(const std::string& param, const ParameterVariantType& val, EffectMode::type mode)
 {
-	StringParamHandleSetMap& paramMap = (mode == EffectMode::Render)? _paramMap : _shadowParamMap;
+	auto& paramMap = (mode == EffectMode::Render)? _paramMap : _shadowParamMap;
 	ProgramHandle program = (mode == EffectMode::Render)? _program : _shadowProgram;
 
-	StringParamHandleSetMap::iterator pItr = paramMap.find(param);
+	auto pItr = paramMap.find(param);
 	if(pItr != paramMap.end())
 	{
-		ParamHandleSet& targetParams = pItr->second;
-		for(ParamHandleSet::iterator cItr = targetParams.begin(); cItr != targetParams.end(); ++cItr)
+		auto& targetParams = pItr->second;
+		for (auto& handle : targetParams.handles)
 		{
-			ParameterHandle& handle = *cItr;
+			//ParameterHandle& handle = *cItr;
 			if(handle.handle == -1)
 			{
 				GLint location = glGetUniformLocation(program, (const GLchar*)(handle.name.c_str()));
@@ -590,6 +599,17 @@ void Effect::set_parameter(const std::string& param, const ParameterVariantType&
 				boost::apply_visitor(ApplyParameterVisitor(handle.handle), val);
 		}
 	}
+}
+
+const Effect::ParameterMap& Effect::get_parameters() const
+{
+	return _paramMap;
+	//std::vector<std::string> paramNames;
+	//for(const auto& nameParamPair : _paramMap)
+	//{
+	//	paramNames.push_back(nameParamPair.first);
+	//}
+	//return paramNames;
 }
 
 bool Effect::validate_program() const

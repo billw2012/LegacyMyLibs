@@ -5,9 +5,9 @@
 // solution
 #include "fbo\framebufferObject.h"
 #include "Math/misc.hpp"
-#include "Math\matrix4.h"
+#include "Math/matrix4.hpp"
 #include "Math\transformation.h"
-#include "Scene\material.h"
+#include "Scene/material.hpp"
 #include "Render\utils_screen_space.h"
 #include "GLBase/videomemorymanager.hpp"
 

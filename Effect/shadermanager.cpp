@@ -16,7 +16,7 @@
 
 #include <boost/variant/apply_visitor.hpp>
 
-#include "GLBase/SDLGl.hpp"
+#include "GLBase/sdlgl.hpp"
 
 using namespace boost::filesystem;
 
@@ -113,7 +113,7 @@ bool parse_once(std::string line)
 
 path make_path_global(const path& apath, const path& currDir)
 {
-	if(apath.is_absolute())
+	if(apath.is_complete())
 		return apath;
 	assert(apath.has_relative_path());
 	return currDir / apath;

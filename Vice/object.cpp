@@ -341,7 +341,7 @@ Object* Object::get_parent_object()
 
 const Object* Object::get_parent_object() const
 {
-	return get_owner_const()->get_object_parent(this);
+	return get_owner_const()->get_object_parent(const_cast<Object*>(this));
 }
 
 bool Object::is_hit_global(float x, float y) const

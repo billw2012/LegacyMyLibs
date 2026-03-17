@@ -65,6 +65,26 @@ struct Effect
 	typedef parameter_variant_type ParameterVariantType;
 #endif
 
+	struct ParameterHandle
+	{
+		std::string name;
+		GLint handle;
+
+		ParameterHandle(const std::string& name_ = std::string()) : handle(-1), name(name_) {}
+	};
+
+	struct Parameter
+	{
+		Parameter() : editable(false) {}
+
+		std::vector<ParameterHandle> handles;
+		std::string type;
+		bool editable;
+	};
+
+	//typedef std::vector<ParameterHandle> ParamHandleSet;
+	using ParameterMap = std::unordered_map < std::string, Parameter > ;
+
 	Effect();
 	~Effect();
 
@@ -86,35 +106,30 @@ struct Effect
 	const std::string& get_last_error() const;
 
 	void set_parameter(const std::string& param, const ParameterVariantType& val, EffectMode::type mode = EffectMode::Render);
+	const ParameterMap& get_parameters() const;
 
 	template < class Fn >
 	void for_each_symantic(Fn op) const;
 
 	bool validate_program() const;
 
+	const boost::filesystem::path& get_path() const { return _file; }
+
 	static void reset_state();
 
-	struct ParameterHandle
-	{
-		std::string name;
-		GLint handle;
-
-		ParameterHandle(const std::string& name_ = std::string()) : handle(-1), name(name_) {}
-	};
 
 	//typedef GLuint ParameterHandle;
 	typedef GLuint ProgramHandle;
 private:
-	typedef std::unordered_set<std::string> StringSet;
-	typedef std::unordered_map<std::string, StringSet> StringStringSetMap;
-	typedef std::vector<ParameterHandle> ParamHandleSet;
-	typedef std::unordered_map<std::string, ParamHandleSet> StringParamHandleSetMap;
+	//typedef std::unordered_set<std::string> StringSet;
+	//typedef std::unordered_map<std::string, StringSet> StringStringSetMap;
+	
 
 
 	bool load_program_node(TiXmlElement* node,std::string& fileName,
-		StringStringSetMap& paramMap, const std::string& cwd);
-	void map_parameters(StringParamHandleSetMap& paramMap, const StringStringSetMap& namesMap, 
-		ShaderManager::ShaderHandle prog);
+		ParameterMap& paramMap, const std::string& cwd);
+	//void map_parameters(StringParamHandleSetMap& paramMap, const StringStringSetMap& namesMap, 
+	//	ShaderManager::ShaderHandle prog);
 	void parse_state( TiXmlElement* stateNode, GLState::GLStateUniqueSet& stateVec );
 
 	bool load_internal(const boost::filesystem::path& file, bool force);
@@ -126,7 +141,7 @@ private:
 	};};
 	ShaderLoadErrorType::type load_shader(TiXmlElement* root, const char* elemName,
 		ShaderManager::LoadFlags shaderType, const std::string& fullDir, ProgramHandle& program,
-		StringStringSetMap& paramMap);
+		ParameterMap& paramMap);
 
 	static void apply_state(const GLState::GLStateUniqueSet& state);
 
@@ -136,7 +151,7 @@ private:
 	std::string _name;
 	boost::filesystem::path _file;
 	ProgramHandle _program, _shadowProgram;
-	StringParamHandleSetMap _paramMap, _shadowParamMap;
+	ParameterMap _paramMap, _shadowParamMap;
 	mutable std::string _lastError;
 	GLState::GLStateUniqueSet _stateSet, _shadowStateSet;
 	mutable EffectMode::type _boundStateType;
@@ -186,8 +201,8 @@ private:
 template < class Fn >
 void Effect::for_each_symantic(Fn op) const
 {
-	for(StringParamHandleSetMap::const_iterator cItr = _paramMap.begin(); cItr != _paramMap.end(); ++cItr)
-		op(cItr->first);
+	for(const auto& nameParamPair : _paramMap)
+		op(nameParamPair.first);
 }
 
 }

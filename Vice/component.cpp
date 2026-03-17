@@ -472,7 +472,7 @@ Object::ptr ComponentInstance::get_child_by_ptr(const Object* obj) const
 
 std::vector<Object*> ComponentInstance::get_children_recusive(const Object* object) const
 {
-	const auto& layoutNode = get_layout_node(object);
+	const auto& layoutNode = get_layout_node(const_cast<Object*>(object));
 
 	std::vector<Object*> children;
 
@@ -832,7 +832,7 @@ boost::filesystem::path ComponentLibrary::resolve_path(boost::filesystem::path f
 	{
 		finalPath = canonical(finalPath);
 	}
-	catch (filesystem_error)
+	catch (boost::filesystem::filesystem_error const&)
 	{
 	}
 
