@@ -1,16 +1,16 @@
 add_library(Ugly STATIC
-    ProcessQueue.cpp
     QDebugStream.cpp
     ugly.cpp
     UglyGraphicsView.cpp
     # Headers with Q_OBJECT must be listed so AUTOMOC picks them up
-    ProcessQueue.h
     QDebugStream.h
     UglyGraphicsView.h
 )
 
-# ProcessRedirect.cpp excluded: includes wait_handle.h which duplicates Utils/WaitHandle
-# when both Ugly and Utils are linked. ProcessRedirect is unused in current projects.
+# ProcessQueue.cpp and ProcessRedirect.cpp excluded:
+# - ProcessRedirect includes wait_handle.h which duplicates Utils/WaitHandle symbols
+# - ProcessQueue calls run_redirected_process from ProcessRedirect
+# - Neither is used by any current project (Galaxy1, Explore2)
 
 set_target_properties(Ugly PROPERTIES AUTOMOC ON)
 
