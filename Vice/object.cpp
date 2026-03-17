@@ -256,6 +256,11 @@ void Object::set_animated_property( const std::string& name, const property_vari
 	_animatedProperties[name] = value;
 }
 
+void Object::set_layout_property(const std::string& name, const property_variant& value)
+{
+	set_property(name, value, true);
+}
+
 std::pair<Object::property_variant, bool> Object::get_property_base(const std::string& name) const
 {
 	auto val = _properties.find(name);
