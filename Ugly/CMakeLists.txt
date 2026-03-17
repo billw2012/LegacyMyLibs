@@ -1,27 +1,38 @@
+add_library(Ugly STATIC
+    ProcessQueue.cpp
+    QDebugStream.cpp
+    ugly.cpp
+    UglyGraphicsView.cpp
+    # Headers with Q_OBJECT must be listed so AUTOMOC picks them up
+    ProcessQueue.h
+    QDebugStream.h
+    UglyGraphicsView.h
+)
 
-set(src_files
-	ProcessQueue.cpp
-	ProcessRedirect.cpp
-	QDebugStream.cpp
-	ugly.cpp
-	UglyGraphicsView.cpp
-	)
+# ProcessRedirect.cpp excluded: includes wait_handle.h which duplicates Utils/WaitHandle
+# when both Ugly and Utils are linked. ProcessRedirect is unused in current projects.
 
-set(header_files
-	ProcessQueue.h
-	ProcessRedirect.h
-	QDebugStream.h
-	QtUtils.h
-	temp.h
-	ugly.h
-	UglyGraphicsView.h
-	wait_handle.h	
-	)
-	
-qt5_wrap_ui(ui_files FCapGraphicsView.ui)
+set_target_properties(Ugly PROPERTIES AUTOMOC ON)
 
-include_directories(..)
+target_include_directories(Ugly
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
+)
 
-add_library(Ugly ${src_files} ${header_files} ${ui_files})
+target_compile_definitions(Ugly
+    PUBLIC
+        UNICODE
+        QT_LARGEFILE_SUPPORT
+        QT_CORE_LIB
+        QT_GUI_LIB
+        QT_WIDGETS_LIB
+        UGLY_LIB
+)
 
-qt5_use_modules(Ugly Core Gui Widgets)
+target_link_libraries(Ugly
+    PUBLIC
+        Qt5::Core
+        Qt5::Gui
+        Qt5::Widgets
+        Boost::headers
+)

@@ -13,6 +13,9 @@ set(header_files
 	time_type.h
 	)
 
-include_directories(..)
+add_library(Utils STATIC ${src_files} ${header_files})
 
-add_library(Utils ${src_files} ${header_files})
+target_include_directories(Utils
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
+)
