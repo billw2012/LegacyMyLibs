@@ -31,8 +31,10 @@ set(header_files
 	vector3.hpp
 	vector4.hpp
 	utils.h
+	atmospheric2.h
 	)
 
 include_directories(..)
 
 add_library(Math ${header_files})
+set_target_properties(Math PROPERTIES LINKER_LANGUAGE CXX)
