@@ -28,8 +28,8 @@
 #include <stdexcept>
 #include <string>
 #include <memory>
-#include "Math/rectangle.h"
-#include "Scene/material.h"
+#include "Math/rectangle.hpp"
+#include "Scene/material.hpp"
 
 #define GLTEXT_CACHE_TEXTURE_SIZE 256
 
