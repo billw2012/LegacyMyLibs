@@ -1,0 +1,12 @@
+# Build artifacts
+build/
+GeneratedFiles/
+x64/
+Debug/
+Release/
+*.user
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
